@@ -1,0 +1,121 @@
+# Nested-swap probe (docs/probes/2026-11-08-nested-swap-probe.md).
+#
+# Throwaway workflow: copy it into a staging repository as
+# .github/workflows/nested-swap-probe.yml and run it from the Actions tab.
+# It uses the probe actions at resilientscale/origin-test-repo/probe/*@v1.
+#
+# Each job runs on a fresh runner. A step before the composite step stands in
+# for the pre-job hook: the GitHub runner downloads every action, nested ones
+# included, before the hook runs (ActionManager.PrepareActionsAsync), and the
+# composite reads its steps when it runs, so a change made in that step is
+# what the hook would see and do.
+name: nested-swap-probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PROBE_REPO: resilientscale/origin-test-repo
+
+jobs:
+  # Question 1: are nested action directories in _actions before any step
+  # runs, and does a reference used directly and nested share one directory?
+  inventory:
+    runs-on: ubuntu-latest # or the label of an Origin runner
+    steps:
+      - name: List _actions before the composite runs
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$(dirname "$RUNNER_WORKSPACE")/_actions"
+          echo "actions root: $root"
+          [ -d "$root" ] || { echo "no _actions directory"; exit 0; }
+          find "$root" -mindepth 1 -maxdepth 3 -printf '%y %p %l\n' | sort
+          for d in actions/checkout/v4 "$PROBE_REPO/v1/probe/outer" "$PROBE_REPO/v1/probe/inner"; do
+            if [ -e "$root/$d" ]; then echo "present: $d"; else echo "absent: $d"; fi
+          done
+          for m in "$root"/*/*/*.completed; do [ -e "$m" ] && echo "marker: ${m#"$root"/}"; done
+      - name: Direct use of actions/checkout@v4
+        uses: actions/checkout@v4
+        with:
+          path: probe-direct-checkout
+          sparse-checkout: README.md
+      - name: Outer composite (control, expect inner-original-v1)
+        uses: resilientscale/origin-test-repo/probe/outer@v1
+      - name: List _actions after the composite ran
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$(dirname "$RUNNER_WORKSPACE")/_actions"
+          echo "actions root: $root"
+          [ -d "$root" ] || { echo "no _actions directory"; exit 0; }
+          find "$root" -mindepth 1 -maxdepth 3 -printf '%y %p %l\n' | sort
+          for d in actions/checkout/v4 "$PROBE_REPO/v1/probe/outer" "$PROBE_REPO/v1/probe/inner"; do
+            if [ -e "$root/$d" ]; then echo "present: $d"; else echo "absent: $d"; fi
+          done
+          for m in "$root"/*/*/*.completed; do [ -e "$m" ] && echo "marker: ${m#"$root"/}"; done
+
+  # Question 2a: does the runner run a nested action whose downloaded
+  # directory was replaced before the step?
+  swap:
+    runs-on: ubuntu-latest # or the label of an Origin runner
+    steps:
+      - name: Replace the inner action's directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$(dirname "$RUNNER_WORKSPACE")/_actions"
+          ref="$root/$PROBE_REPO/v1"
+          ls -la "$root/$PROBE_REPO" || true
+          # A symlinked cache entry is replaced by a real copy, as the hook's
+          # swap would replace it.
+          if [ -L "$ref" ]; then
+            tmp="$(mktemp -d)"; cp -rL "$ref/." "$tmp/"; rm "$ref"; mv "$tmp" "$ref"
+            echo "replaced symlink with a copy"
+          fi
+          cat > "$ref/probe/inner/action.yml" <<'YAML'
+          name: origin-probe-inner
+          description: swapped by the probe
+          runs:
+            using: composite
+            steps:
+              - shell: bash
+                run: echo "origin-probe-marker=inner-swapped"
+          YAML
+          echo "inner action replaced"
+      - name: Outer composite (expect inner-swapped)
+        uses: resilientscale/origin-test-repo/probe/outer@v1
+
+  # Question 2b: does the runner run a nested action from a directory the
+  # runner never downloaded, after the composite was changed to call it?
+  create:
+    runs-on: ubuntu-latest # or the label of an Origin runner
+    steps:
+      - name: Point the outer action at an undownloaded ref and create it
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$(dirname "$RUNNER_WORKSPACE")/_actions"
+          ref="$root/$PROBE_REPO/v1"
+          if [ -L "$ref" ]; then
+            tmp="$(mktemp -d)"; cp -rL "$ref/." "$tmp/"; rm "$ref"; mv "$tmp" "$ref"
+            echo "replaced symlink with a copy"
+          fi
+          sed -i 's#probe/inner@v1#probe/inner@v9#' "$ref/probe/outer/action.yml"
+          grep -n 'probe/inner@' "$ref/probe/outer/action.yml"
+          mkdir -p "$root/$PROBE_REPO/v9/probe/inner"
+          cat > "$root/$PROBE_REPO/v9/probe/inner/action.yml" <<'YAML'
+          name: origin-probe-inner
+          description: created by the probe, never downloaded
+          runs:
+            using: composite
+            steps:
+              - shell: bash
+                run: echo "origin-probe-marker=inner-created-v9"
+          YAML
+          echo "v9 created"
+      - name: Outer composite (expect inner-created-v9, or the runner's error)
+        uses: resilientscale/origin-test-repo/probe/outer@v1
