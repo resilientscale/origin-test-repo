@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 env:
   PROBE_REPO: resilientscale/origin-test-repo
