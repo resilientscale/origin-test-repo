@@ -24,7 +24,7 @@ jobs:
   # Question 1: are nested action directories in _actions before any step
   # runs, and does a reference used directly and nested share one directory?
   inventory:
-    runs-on: ubuntu-latest # or the label of an Origin runner
+    runs-on: origin # or the label of an Origin runner
     steps:
       - name: List _actions before the composite runs
         shell: bash
@@ -61,7 +61,7 @@ jobs:
   # Question 2a: does the runner run a nested action whose downloaded
   # directory was replaced before the step?
   swap:
-    runs-on: ubuntu-latest # or the label of an Origin runner
+    runs-on: origin # or the label of an Origin runner
     steps:
       - name: Replace the inner action's directory
         shell: bash
@@ -92,7 +92,7 @@ jobs:
   # Question 2b: does the runner run a nested action from a directory the
   # runner never downloaded, after the composite was changed to call it?
   create:
-    runs-on: ubuntu-latest # or the label of an Origin runner
+    runs-on: origin # or the label of an Origin runner
     steps:
       - name: Point the outer action at an undownloaded ref and create it
         shell: bash
