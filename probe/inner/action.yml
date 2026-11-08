@@ -1,0 +1,9 @@
+# Nested-swap probe: the inner action. Prints a marker so a probe run shows
+# which copy of this action the runner executed.
+name: origin-probe-inner
+description: Prints the nested-swap probe marker.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: echo "origin-probe-marker=inner-original-v1"

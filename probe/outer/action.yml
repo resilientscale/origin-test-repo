@@ -1,0 +1,15 @@
+# Nested-swap probe: the outer composite action. It calls the inner action and
+# actions/checkout by repository reference, so the GitHub runner treats both
+# as nested actions to download.
+name: origin-probe-outer
+description: Calls the nested-swap probe's inner action and actions/checkout.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: echo "origin-probe-outer=running"
+    - uses: resilientscale/origin-test-repo/probe/inner@v1
+    - uses: actions/checkout@v4
+      with:
+        path: probe-nested-checkout
+        sparse-checkout: README.md
